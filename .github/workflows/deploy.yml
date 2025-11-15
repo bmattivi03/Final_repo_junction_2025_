@@ -50,9 +50,18 @@ jobs:
         env:
           NODE_ENV: production
 
+      - name: Verify build output
+        run: |
+          echo "Checking if dist directory exists:"
+          ls -la site/dist/ || echo "dist directory not found!"
+          test -d site/dist || (echo "ERROR: dist directory was not created by build" && exit 1)
+
       - name: Create .nojekyll file
-        working-directory: ./site/dist
-        run: touch .nojekyll
+        run: |
+          mkdir -p site/dist
+          touch site/dist/.nojekyll
+          echo ".nojekyll file created"
+          ls -la site/dist/.nojekyll
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
