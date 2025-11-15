@@ -46,15 +46,35 @@ jobs:
 
       - name: Build
         working-directory: ./site
-        run: npm run build
+        run: |
+          echo "Building project..."
+          echo "Current directory: $(pwd)"
+          echo "Contents before build:"
+          ls -la
+          echo "Running build command..."
+          npm run build || (echo "Build failed!" && exit 1)
+          echo "Contents after build:"
+          ls -la
+          echo "Checking for dist directory:"
+          ls -la dist/ 2>/dev/null || echo "dist directory not found in site/"
         env:
           NODE_ENV: production
 
       - name: Verify build output
         run: |
-          echo "Checking if dist directory exists:"
-          ls -la site/dist/ || echo "dist directory not found!"
-          test -d site/dist || (echo "ERROR: dist directory was not created by build" && exit 1)
+          echo "Checking build output from root:"
+          echo "Site directory contents:"
+          ls -la site/ || echo "site directory not found!"
+          echo "Dist directory check:"
+          if [ -d "site/dist" ]; then
+            echo "✓ dist directory exists"
+            ls -la site/dist/ | head -20
+          else
+            echo "✗ dist directory does not exist"
+            echo "Checking for other build directories:"
+            find site/ -type d -name "dist" -o -name "build" -o -name "out" 2>/dev/null || echo "No build directories found"
+            exit 1
+          fi
 
       - name: Create .nojekyll file
         run: |
