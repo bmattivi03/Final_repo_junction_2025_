@@ -38,6 +38,18 @@ jobs:
         working-directory: ./site
         run: npm run build
 
+      - name: Verify build output
+        working-directory: ./site
+        run: |
+          echo "Checking index.html for correct base path..."
+          if grep -q '/Final_repo_junction_2025_/assets/' build/index.html; then
+            echo "✓ Base path is correct in index.html"
+          else
+            echo "✗ ERROR: Base path is missing in index.html!"
+            cat build/index.html
+            exit 1
+          fi
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
