@@ -65,31 +65,55 @@ jobs:
           echo "Checking build output from root:"
           echo "Site directory contents:"
           ls -la site/ || echo "site directory not found!"
-          echo "Dist directory check:"
+          echo "Checking for build output directory:"
           if [ -d "site/dist" ]; then
-            echo "✓ dist directory exists"
-            ls -la site/dist/ | head -20
+            echo "✓ Using dist directory"
+            BUILD_DIR="site/dist"
+          elif [ -d "site/build" ]; then
+            echo "✓ Using build directory"
+            BUILD_DIR="site/build"
           else
-            echo "✗ dist directory does not exist"
-            echo "Checking for other build directories:"
-            find site/ -type d -name "dist" -o -name "build" -o -name "out" 2>/dev/null || echo "No build directories found"
+            echo "✗ No build output directory found"
+            echo "Available directories:"
+            ls -la site/ | grep "^d" || echo "No directories found"
             exit 1
           fi
+          echo "Build directory: $BUILD_DIR"
+          ls -la "$BUILD_DIR" | head -20
 
       - name: Create .nojekyll file
         run: |
-          mkdir -p site/dist
-          touch site/dist/.nojekyll
-          echo ".nojekyll file created"
-          ls -la site/dist/.nojekyll
+          if [ -d "site/dist" ]; then
+            BUILD_DIR="site/dist"
+          elif [ -d "site/build" ]; then
+            BUILD_DIR="site/build"
+          else
+            echo "ERROR: Build directory not found"
+            exit 1
+          fi
+          touch "$BUILD_DIR/.nojekyll"
+          echo ".nojekyll file created in $BUILD_DIR"
+          ls -la "$BUILD_DIR/.nojekyll"
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
+      - name: Determine build directory
+        id: build-dir
+        run: |
+          if [ -d "site/dist" ]; then
+            echo "dir=site/dist" >> $GITHUB_OUTPUT
+          elif [ -d "site/build" ]; then
+            echo "dir=site/build" >> $GITHUB_OUTPUT
+          else
+            echo "ERROR: No build directory found"
+            exit 1
+          fi
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './site/dist'
+          path: ${{ steps.build-dir.outputs.dir }}
 
   deploy:
     environment:
