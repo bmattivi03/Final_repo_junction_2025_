@@ -1,0 +1,62 @@
+# Dependencies
+node_modules/
+site/node_modules/
+
+# Build outputs
+site/build/
+site/dist/
+build/
+dist/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Vite
+site/.vite/
+.vite/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Data files (if large)
+*.zip
+*.csv
+!site/src/assets/data/*.csv
+
+# Cache
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+.output/
+

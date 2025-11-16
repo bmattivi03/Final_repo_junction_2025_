@@ -1,10 +1,19 @@
 
   import { defineConfig } from 'vite';
-  import react from '@vitejs/plugin-react-swc';
+  import react from '@vitejs/plugin-react';
   import path from 'path';
 
   export default defineConfig({
-    plugins: [react()],
+    plugins: [
+      react({
+        jsxRuntime: 'automatic',
+      }),
+    ],
+    base: '/Final_repo_junction_2025_/',
+    define: {
+      'process.env': process.env,
+      'global': 'globalThis',
+    },
     resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
       alias: {
@@ -49,9 +58,27 @@
         '@': path.resolve(__dirname, './src'),
       },
     },
+    optimizeDeps: {
+      esbuildOptions: {
+        target: 'es2018',
+        supported: {
+          'top-level-await': true,
+        },
+      },
+      include: ['motion', 'maplibre-gl'],
+      exclude: [],
+      force: true,
+    },
     build: {
-      target: 'esnext',
+      target: ['es2018', 'edge79', 'firefox67', 'chrome70', 'safari12'],
       outDir: 'build',
+      cssCodeSplit: false,
+      minify: 'esbuild',
+      rollupOptions: {
+        output: {
+          manualChunks: undefined,
+        },
+      },
     },
     server: {
       port: 3000,

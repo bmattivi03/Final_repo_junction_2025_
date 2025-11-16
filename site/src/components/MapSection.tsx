@@ -4,6 +4,16 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { loadGroupTable, GroupTableRow } from "../utils/csvLoader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
+// Configure MapLibre worker for GitHub Pages with CSP support
+// This ensures the worker loads correctly from the subdirectory
+if (typeof window !== 'undefined') {
+  const workerUrl = new URL(
+    'maplibre-gl/dist/maplibre-gl-csp-worker.js',
+    import.meta.url
+  ).href;
+  (maplibregl as any).workerUrl = workerUrl;
+}
+
 interface RegionMarker {
   id: string;
   name: string;
@@ -143,33 +153,111 @@ export function MapSection({
   // INITIALIZE PURE MAPLIBRE (SMOOTH ZOOM + TILT)
   // -------------------------------------------------------------
   useEffect(() => {
-    if (!ref.current) return;
+    if (!ref.current) {
+      console.warn("Map container ref is null");
+      return;
+    }
 
-    const apiKey = "76bad9eb-0487-4e7b-bc13-4f01f6986346";
+    // Wait for container to have dimensions
+    const checkAndInit = () => {
+      if (!ref.current) return false;
+      const rect = ref.current.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    };
 
-    map.current = new maplibregl.Map({
-      container: ref.current,
-      style: `https://tiles.stadiamaps.com/styles/stamen_toner.json?api_key=${apiKey}`,
-      center: [25, 62.5],
-      zoom: 4.5,
-      pitch: 0,
-      bearing: 0,
-      dragRotate: true,
-      pitchWithRotate: true,
-      antialias: true,
-      interactive: true,
-    });
+    const initMap = () => {
+      if (!checkAndInit() || map.current) return;
 
-    map.current.addControl(
-      new maplibregl.NavigationControl({ visualizePitch: true })
-    );
+      const apiKey = "76bad9eb-0487-4e7b-bc13-4f01f6986346";
+      const styleUrl = `https://tiles.stadiamaps.com/styles/stamen_toner.json?api_key=${apiKey}`;
 
-    map.current.on("load", () => {
-      setLoaded(true);
-    });
+      console.log("Initializing map with container:", {
+        width: ref.current!.offsetWidth,
+        height: ref.current!.offsetHeight
+      });
+
+      try {
+        map.current = new maplibregl.Map({
+          container: ref.current!,
+          style: styleUrl,
+          center: [25, 62.5],
+          zoom: 4.5,
+          pitch: 0,
+          bearing: 0,
+          dragRotate: true,
+          pitchWithRotate: true,
+          interactive: true,
+        });
+
+        map.current.addControl(
+          new maplibregl.NavigationControl({ visualizePitch: true })
+        );
+
+        map.current.on("load", () => {
+          console.log("Map loaded successfully");
+          setLoaded(true);
+          if (map.current) {
+            map.current.resize();
+            console.log("Map resized after load");
+          }
+        });
+
+        map.current.on("error", (e: any) => {
+          console.error("Map error:", e);
+        });
+
+        // ResizeObserver for container size changes
+        const resizeObserver = new ResizeObserver(() => {
+          if (map.current?.loaded()) {
+            map.current.resize();
+          }
+        });
+        resizeObserver.observe(ref.current!);
+
+        // IntersectionObserver for visibility
+        const intersectionObserver = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              if (entry.isIntersecting && map.current?.loaded()) {
+                setTimeout(() => {
+                  map.current?.resize();
+                }, 100);
+              }
+            });
+          },
+          { threshold: 0.01 }
+        );
+        intersectionObserver.observe(ref.current!);
+
+        return () => {
+          resizeObserver.disconnect();
+          intersectionObserver.disconnect();
+        };
+      } catch (error) {
+        console.error("Error creating map:", error);
+      }
+    };
+
+    // Try to initialize immediately
+    if (checkAndInit()) {
+      setTimeout(initMap, 0);
+    } else {
+      // Wait and retry
+      const retryInterval = setInterval(() => {
+        if (checkAndInit()) {
+          clearInterval(retryInterval);
+          initMap();
+        }
+      }, 100);
+      
+      setTimeout(() => clearInterval(retryInterval), 5000);
+    }
 
     return () => {
-      map.current?.remove();
+      if (map.current) {
+        map.current.remove();
+        map.current = null;
+      }
     };
   }, []); // Only run once for map initialization
 
