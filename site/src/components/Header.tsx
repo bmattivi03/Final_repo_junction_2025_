@@ -58,7 +58,7 @@ export function Header({ onExploreClick }: HeaderProps) {
         <div className="backdrop-blur-md bg-white/10 rounded-3xl p-12 border border-white/20 shadow-2xl">
           {/* Main Title */}
           <h1 className="text-white mb-6 tracking-tight" style={{ fontSize: '3.5rem', fontWeight: 700, lineHeight: 1.1 }}>
-            Energy Consumption Explorer
+          WattAhead
           </h1>
           <div className="h-1 w-24 bg-gradient-to-r from-[#2A66FF] to-[#6A38FF] mx-auto mb-6 rounded-full"></div>
           
@@ -69,9 +69,8 @@ export function Header({ onExploreClick }: HeaderProps) {
 
           {/* Description */}
           <p className="text-white/80 max-w-2xl mx-auto mb-10" style={{ fontSize: '1.125rem', lineHeight: 1.7, fontWeight: 400 }}>
-            Explore predictive analytics for energy consumption across Finnish regions. 
-            Leverage machine learning models to forecast demand patterns, optimize resource 
-            allocation, and drive data-informed energy management decisions.
+            Advanced ML solution for electricity consumption forecasting across 112 customer groups in Finland. 
+            Predicts 48-hour hourly and 12-month monthly consumption using feature engineering, deep learning, and gradient boosting.
           </p>
 
           {/* CTA Button */}

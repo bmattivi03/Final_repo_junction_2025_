@@ -1,5 +1,10 @@
 # Fortum Junction 2025 - Energy Forecasting Challenge
 
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/Status-Prototype-orange.svg)]()
+[![Made with Pandas](https://img.shields.io/badge/Made%20with-pandas-150458?logo=pandas&logoColor=white)](https://pandas.pydata.org/)
+
 Advanced machine learning solution for short-term (48-hour) and medium-term (12-month) electricity consumption forecasting across 112 customer groups in Finland.
 
 ---
@@ -50,6 +55,33 @@ Junction/
 ├── outputs/                          # Final submission files
 │   ├── forecast_48h.csv             # 48-hour hourly predictions
 │   └── forecast_12m.csv             # 12-month monthly predictions
+│
+├── site/                             # Interactive web dashboard
+│   ├── src/
+│   │   ├── components/              # React components
+│   │   │   ├── Header.tsx          # Hero section with challenge overview
+│   │   │   ├── MapSection.tsx       # Interactive map with consumption markers
+│   │   │   ├── ChartSection.tsx     # Forecast visualization charts
+│   │   │   ├── FilterPanel.tsx      # Location and attribute filters
+│   │   │   ├── CityPanel.tsx        # Location details panel
+│   │   │   └── ui/                  # Reusable UI components
+│   │   ├── assets/
+│   │   │   ├── data/                # Forecast CSV files for visualization
+│   │   │   │   ├── forecast_48h.csv
+│   │   │   │   ├── forecast_12m.csv
+│   │   │   │   └── groups-Table.csv
+│   │   │   ├── images/              # Hero and pipeline images
+│   │   │   └── favicon.png
+│   │   ├── utils/
+│   │   │   └── csvLoader.ts         # CSV parsing utilities
+│   │   ├── App.tsx                  # Main application component
+│   │   └── main.tsx                 # Application entry point
+│   ├── public/
+│   │   └── favicon.png              # Site favicon
+│   ├── index.html                   # HTML template
+│   ├── vite.config.ts               # Vite build configuration
+│   ├── package.json                 # Node.js dependencies
+│   └── README.md                    # Frontend documentation
 │
 ├── requirements.txt
 └── README.md
