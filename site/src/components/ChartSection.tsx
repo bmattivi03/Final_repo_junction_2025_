@@ -44,7 +44,15 @@ const MonthlyTooltip = ({ active, payload }: any) => {
 };
 
 export function ChartSection({ selection }: ChartSectionProps) {
-  const [activeView, setActiveView] = useState<'hourly' | 'monthly'>('hourly');
+  // Use viewMode from selection if available, otherwise default to 'hourly'
+  const [activeView, setActiveView] = useState<'hourly' | 'monthly'>(selection.viewMode || 'hourly');
+  
+  // Update activeView when selection.viewMode changes
+  useEffect(() => {
+    if (selection.viewMode) {
+      setActiveView(selection.viewMode);
+    }
+  }, [selection.viewMode]);
   const [hourlyData, setHourlyData] = useState<Array<{
     time: string;
     fullTime: string;

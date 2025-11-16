@@ -28,6 +28,11 @@ const cityData: Record<string, {
 export function CityPanel({ selection }: CityPanelProps) {
   const data = selection.city ? cityData[selection.city] : null;
   const displayGroupId = selection.groupId || data?.groupId || null;
+  
+  // Use filters from selection if available, otherwise fall back to mock data
+  const customerType = selection.filters?.customerType || data?.customerType || null;
+  const priceType = selection.filters?.priceType || data?.pricingModel || null;
+  const consumptionLevel = selection.filters?.consumptionLevel || data?.consumptionTier || null;
 
   return (
     <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200 h-fit">
@@ -56,38 +61,52 @@ export function CityPanel({ selection }: CityPanelProps) {
           </div>
         </div>
 
-        {data && (
-          <>
-            <div className="flex items-start gap-3">
-              <div className="mt-1 p-2 bg-blue-100 rounded-lg">
-                <Users className="w-5 h-5 text-blue-600" />
-              </div>
-              <div className="flex-1">
-                <p className="text-slate-500">Customer Type</p>
-                <p className="text-slate-800">{data.customerType}</p>
-              </div>
+        {selection.subregion && (
+          <div className="flex items-start gap-3">
+            <div className="mt-1 p-2 bg-indigo-100 rounded-lg">
+              <Building2 className="w-5 h-5 text-indigo-600" />
             </div>
+            <div className="flex-1">
+              <p className="text-slate-500">Subregion</p>
+              <p className="text-slate-800">{selection.subregion}</p>
+            </div>
+          </div>
+        )}
 
-            <div className="flex items-start gap-3">
-              <div className="mt-1 p-2 bg-green-100 rounded-lg">
-                <CreditCard className="w-5 h-5 text-green-600" />
-              </div>
-              <div className="flex-1">
-                <p className="text-slate-500">Pricing Model</p>
-                <p className="text-slate-800">{data.pricingModel}</p>
-              </div>
+        {customerType && (
+          <div className="flex items-start gap-3">
+            <div className="mt-1 p-2 bg-blue-100 rounded-lg">
+              <Users className="w-5 h-5 text-blue-600" />
             </div>
+            <div className="flex-1">
+              <p className="text-slate-500">Customer Type</p>
+              <p className="text-slate-800">{customerType}</p>
+            </div>
+          </div>
+        )}
 
-            <div className="flex items-start gap-3">
-              <div className="mt-1 p-2 bg-purple-100 rounded-lg">
-                <TrendingUp className="w-5 h-5 text-purple-600" />
-              </div>
-              <div className="flex-1">
-                <p className="text-slate-500">Consumption Tier</p>
-                <p className="text-slate-800">{data.consumptionTier}</p>
-              </div>
+        {priceType && (
+          <div className="flex items-start gap-3">
+            <div className="mt-1 p-2 bg-green-100 rounded-lg">
+              <CreditCard className="w-5 h-5 text-green-600" />
             </div>
-          </>
+            <div className="flex-1">
+              <p className="text-slate-500">Pricing Model</p>
+              <p className="text-slate-800">{priceType}</p>
+            </div>
+          </div>
+        )}
+
+        {consumptionLevel && (
+          <div className="flex items-start gap-3">
+            <div className="mt-1 p-2 bg-purple-100 rounded-lg">
+              <TrendingUp className="w-5 h-5 text-purple-600" />
+            </div>
+            <div className="flex-1">
+              <p className="text-slate-500">Consumption Tier</p>
+              <p className="text-slate-800">{consumptionLevel}</p>
+            </div>
+          </div>
         )}
 
         {displayGroupId && (

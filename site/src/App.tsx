@@ -13,6 +13,7 @@ export interface SelectionState {
   subregion: string;
   city: string;
   groupId: number | null;
+  viewMode?: 'hourly' | 'monthly';
   filters?: {
     customerType: string;
     priceType: string;
@@ -56,7 +57,8 @@ function App() {
       customerType: string;
       priceType: string;
       consumptionLevel: string;
-    }
+    },
+    viewMode?: 'hourly' | 'monthly'
   ) => {
     setSelection({
       ...selection,
@@ -65,8 +67,16 @@ function App() {
       city,
       groupId,
       filters,
+      viewMode,
     });
     setShowVisualization(true);
+    // Smooth scroll to graph section after state update
+    setTimeout(() => {
+      const graphSection = document.getElementById('graph-section');
+      if (graphSection) {
+        graphSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 200);
   };
 
   const updateSelection = (updates: Partial<SelectionState>) => {
@@ -116,10 +126,8 @@ function App() {
         </section>
 
         {/* 4. INFORMATION PANEL + GRAPH SECTION */}
-        {showVisualization && selection.city && selection.filters && (
-          selection.filters.customerType || selection.filters.priceType || selection.filters.consumptionLevel
-        ) && (
-          <section className="py-20 px-6 bg-white">
+        {showVisualization && selection.city && selection.groupId && (
+          <section id="graph-section" className="py-20 px-6 bg-white">
             <div className="max-w-7xl mx-auto">
               <div className="text-center mb-12">
                 <h2 className="text-slate-900 mb-6 tracking-tight" style={{ fontSize: '2.5rem', fontWeight: 700, lineHeight: 1.2 }}>

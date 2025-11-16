@@ -47,24 +47,24 @@ export function ChallengeSection() {
               The forecasting system leverages the following data sources:
             </p>
             <ul className="space-y-4 text-slate-600" style={{ fontSize: '1rem', lineHeight: 1.7 }}>
-              <li className="flex items-start gap-3">
-                <span className="text-[#2A66FF] mt-1" style={{ fontSize: '1.25rem', fontWeight: 700 }}>•</span>
+              <li className="flex gap-3">
+                <span className="text-[#2A66FF] flex-shrink-0 self-start" style={{ fontSize: '1rem', fontWeight: 700 }}>•</span>
                 <span><strong className="text-slate-800">Historical Consumption:</strong> Daily energy usage patterns across 50+ regions and customer segments</span>
               </li>
-              <li className="flex items-start gap-3">
-                <span className="text-[#2A66FF] mt-1" style={{ fontSize: '1.25rem', fontWeight: 700 }}>•</span>
+              <li className="flex gap-3">
+                <span className="text-[#2A66FF] flex-shrink-0 self-start" style={{ fontSize: '1rem', fontWeight: 700 }}>•</span>
                 <span><strong className="text-slate-800">Weather Data:</strong> Temperature, precipitation, and seasonal indicators from meteorological stations</span>
               </li>
-              <li className="flex items-start gap-3">
-                <span className="text-[#2A66FF] mt-1" style={{ fontSize: '1.25rem', fontWeight: 700 }}>•</span>
+              <li className="flex gap-3">
+                <span className="text-[#2A66FF] flex-shrink-0 self-start" style={{ fontSize: '1rem', fontWeight: 700 }}>•</span>
                 <span><strong className="text-slate-800">Energy Prices:</strong> Market pricing models including fixed-rate, time-of-use, and dynamic pricing structures</span>
               </li>
-              <li className="flex items-start gap-3">
-                <span className="text-[#2A66FF] mt-1" style={{ fontSize: '1.25rem', fontWeight: 700 }}>•</span>
+              <li className="flex gap-3">
+                <span className="text-[#2A66FF] flex-shrink-0 self-start" style={{ fontSize: '1rem', fontWeight: 700 }}>•</span>
                 <span><strong className="text-slate-800">Production Statistics:</strong> Generation capacity and renewable energy integration metrics</span>
               </li>
-              <li className="flex items-start gap-3">
-                <span className="text-[#2A66FF] mt-1" style={{ fontSize: '1.25rem', fontWeight: 700 }}>•</span>
+              <li className="flex gap-3">
+                <span className="text-[#2A66FF] flex-shrink-0 self-start" style={{ fontSize: '1rem', fontWeight: 700 }}>•</span>
                 <span><strong className="text-slate-800">Feature Engineering:</strong> Lag features, rolling averages, and temporal embeddings for enhanced predictions</span>
               </li>
             </ul>

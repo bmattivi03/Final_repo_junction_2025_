@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import maplibregl, { Map } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { loadGroupTable, GroupTableRow } from "../utils/csvLoader";
+import { loadGroupTable, GroupTableRow, loadForecastData } from "../utils/csvLoader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
 // Configure MapLibre worker for GitHub Pages with CSP support
@@ -38,7 +38,8 @@ interface MapSectionProps {
       customerType: string;
       priceType: string;
       consumptionLevel: string;
-    }
+    },
+    viewMode?: 'hourly' | 'monthly'
   ) => void;
 }
 
@@ -85,9 +86,6 @@ const cityCoordinates: Record<string, { lat: number; lng: number }> = {
 // This will be populated from the group table CSV
 const regionMap: Record<string, string> = {};
 
-const getIntensity = (v: number) =>
-  v > 1000 ? 4 : v > 700 ? 3 : v > 500 ? 2 : 1;
-
 const getTrendIcon = (t: string) =>
   t === "up" ? "↑" : t === "down" ? "↓" : "→";
 
@@ -98,9 +96,57 @@ export function MapSection({
 }: MapSectionProps) {
   const ref = useRef<HTMLDivElement>(null);
   const map = useRef<Map | null>(null);
+  const loadedRef = useRef(false); // Track loaded state with ref to avoid stale closures
   const [loaded, setLoaded] = useState(false);
   const [groupTable, setGroupTable] = useState<GroupTableRow[]>([]);
   const [regionMapFromGroups, setRegionMapFromGroups] = useState<Record<string, string>>({});
+  const [forecastDataCache, setForecastDataCache] = useState<Record<number, { hourly?: number; monthly?: number }>>({}); // Cache both hourly and monthly forecast values
+  const [viewMode, setViewMode] = useState<'hourly' | 'monthly'>('hourly'); // Toggle between hourly and monthly view
+  
+  // Calculate average consumption for color palette
+  const averageConsumption = React.useMemo(() => {
+    const allConsumptions: { hourly: number[]; monthly: number[] } = { hourly: [], monthly: [] };
+    
+    // Collect all consumption values from forecast data cache
+    (Object.values(forecastDataCache) as Array<{ hourly?: number; monthly?: number }>).forEach((data) => {
+      if (data.hourly !== undefined) {
+        allConsumptions.hourly.push(data.hourly);
+      }
+      if (data.monthly !== undefined) {
+        allConsumptions.monthly.push(data.monthly);
+      }
+    });
+    
+    // If no forecast data, use estimated values from group table
+    if (allConsumptions.hourly.length === 0 || allConsumptions.monthly.length === 0) {
+      const dailyConsumptionMap: Record<string, number> = {
+        "Low": 500,
+        "Medium": 750,
+        "High": 1200,
+      };
+      const monthlyConsumptionMap: Record<string, number> = {
+        "Low": 15000,
+        "Medium": 22500,
+        "High": 36000,
+      };
+      
+      groupTable.forEach(group => {
+        const dailyEstimate = dailyConsumptionMap[group.consumptionLevel] || 700;
+        const monthlyEstimate = monthlyConsumptionMap[group.consumptionLevel] || 21000;
+        allConsumptions.hourly.push(dailyEstimate);
+        allConsumptions.monthly.push(monthlyEstimate);
+      });
+    }
+    
+    const avgHourly = allConsumptions.hourly.length > 0
+      ? allConsumptions.hourly.reduce((sum, val) => sum + val, 0) / allConsumptions.hourly.length
+      : 700;
+    const avgMonthly = allConsumptions.monthly.length > 0
+      ? allConsumptions.monthly.reduce((sum, val) => sum + val, 0) / allConsumptions.monthly.length
+      : 21000;
+    
+    return { hourly: avgHourly, monthly: avgMonthly };
+  }, [forecastDataCache, groupTable]);
   
   // Filter states
   const [selectedCustomerType, setSelectedCustomerType] = useState<string>("all");
@@ -113,6 +159,7 @@ export function MapSection({
   const [selectedMapCity, setSelectedMapCity] = useState<string>("");
 
   const popupRef = useRef<maplibregl.Popup | null>(null);
+  const topPopupRef = useRef<HTMLDivElement | null>(null);
 
   // Load group table CSV and build region mapping
   useEffect(() => {
@@ -168,43 +215,248 @@ export function MapSection({
     const initMap = () => {
       if (!checkAndInit() || map.current) return;
 
-      const apiKey = "76bad9eb-0487-4e7b-bc13-4f01f6986346";
-      const styleUrl = `https://tiles.stadiamaps.com/styles/stamen_toner.json?api_key=${apiKey}`;
+    const apiKey = "76bad9eb-0487-4e7b-bc13-4f01f6986346";
+
+      // Use raster tiles for Stamen Toner (Stadia Maps format)
+      const rasterTileUrl = `https://tiles.stadiamaps.com/tiles/stamen_toner/{z}/{x}/{y}.png?api_key=${apiKey}`;
+      
+      // Create a custom style with raster source
+      const customStyle = {
+        version: 8,
+        sources: {
+          'stamen-toner': {
+            type: 'raster',
+            tiles: [rasterTileUrl],
+            tileSize: 256,
+            attribution: '© Stadia Maps, © Stamen Design, © OpenMapTiles, © OpenStreetMap contributors'
+          }
+        },
+        layers: [
+          {
+            id: 'stamen-toner-layer',
+            type: 'raster',
+            source: 'stamen-toner',
+            minzoom: 0,
+            maxzoom: 22
+          }
+        ]
+      };
 
       console.log("Initializing map with container:", {
         width: ref.current!.offsetWidth,
-        height: ref.current!.offsetHeight
+        height: ref.current!.offsetHeight,
+        tileUrl: rasterTileUrl
       });
 
       try {
-        map.current = new maplibregl.Map({
+    map.current = new maplibregl.Map({
           container: ref.current!,
-          style: styleUrl,
-          center: [25, 62.5],
-          zoom: 4.5,
-          pitch: 0,
-          bearing: 0,
-          dragRotate: true,
-          pitchWithRotate: true,
-          interactive: true,
-        });
+          style: customStyle as any,
+      center: [25, 62.5],
+      zoom: 4.5,
+      pitch: 0,
+      bearing: 0,
+      dragRotate: true,
+      pitchWithRotate: true,
+      interactive: true,
+    });
 
-        map.current.addControl(
-          new maplibregl.NavigationControl({ visualizePitch: true })
-        );
+    map.current.addControl(
+      new maplibregl.NavigationControl({ visualizePitch: true })
+    );
+
+        const markAsLoaded = () => {
+          if (!loadedRef.current) {
+            loadedRef.current = true;
+      setLoaded(true);
+            console.log("Map marked as loaded");
+            if (map.current) {
+              map.current.resize();
+              map.current.triggerRepaint();
+              const canvas = ref.current?.querySelector('canvas');
+              if (canvas) {
+                console.log("Canvas dimensions:", canvas.width, "x", canvas.height);
+              }
+            }
+          }
+        };
+
+        // Check if map is already loaded (in case load event fired before listener was attached)
+        if (map.current.loaded()) {
+          console.log("Map already loaded when listener attached");
+          markAsLoaded();
+        }
 
         map.current.on("load", () => {
-          console.log("Map loaded successfully");
-          setLoaded(true);
+          console.log("Map loaded successfully (load event)");
+          markAsLoaded();
+        });
+        
+        map.current.on("styledata", () => {
+          console.log("Map style loaded");
           if (map.current) {
             map.current.resize();
-            console.log("Map resized after load");
+            // Check if map is loaded after style loads
+            if (map.current.loaded()) {
+              console.log("Map loaded detected after styledata event");
+              markAsLoaded();
+            }
+            // Log style sources to debug tile loading
+            const style = map.current.getStyle();
+            if (style && style.sources) {
+              console.log("Style sources:", Object.keys(style.sources));
+            }
           }
         });
 
         map.current.on("error", (e: any) => {
           console.error("Map error:", e);
+          if (e.error) {
+            console.error("Error details:", e.error);
+            console.error("Error message:", e.error?.message);
+            console.error("Error status:", e.error?.status);
+          }
+          // Log tile loading errors specifically
+          if (e.error?.message?.includes('tile') || e.error?.message?.includes('Failed to load')) {
+            console.error("Tile loading error detected!");
+          }
         });
+
+        map.current.on("sourcedata", (e: any) => {
+          if (e.isSourceLoaded && e.sourceId) {
+            console.log("Source loaded:", e.sourceId);
+          }
+          if (e.sourceId === 'stamen-toner' && e.isSourceLoaded) {
+            console.log("Tile source 'stamen-toner' fully loaded!");
+          }
+        });
+
+        map.current.on("sourcedataloading", (e: any) => {
+          console.log("Source loading:", e.sourceId);
+          if (e.sourceId === 'stamen-toner') {
+            console.log("Tile source 'stamen-toner' is loading...");
+          }
+        });
+
+        map.current.on("sourcedataerror", (e: any) => {
+          console.error("Source data error:", e.sourceId, e.error);
+          if (e.sourceId === 'stamen-toner') {
+            console.error("CRITICAL: Tile source 'stamen-toner' failed to load!", e.error);
+            console.error("Error details:", {
+              sourceId: e.sourceId,
+              error: e.error,
+              tile: e.tile,
+              status: e.tile?.status,
+              message: e.error?.message
+            });
+          }
+        });
+
+        map.current.on("tileerror", (e: any) => {
+          console.error("Tile error:", e);
+          if (e.sourceId === 'stamen-toner') {
+            console.error("CRITICAL: Tile failed to load for 'stamen-toner'!", {
+              sourceId: e.sourceId,
+              tile: e.tile,
+              error: e.error,
+              tileUrl: e.tile?.tileID,
+              status: e.tile?.status
+            });
+          }
+        });
+
+        // Listen for when tiles are requested
+        map.current.on("dataloading", (e: any) => {
+          if (e.dataType === 'source' && e.sourceId === 'stamen-toner') {
+            console.log("Tile data loading for stamen-toner");
+          }
+        });
+
+        // Listen for when tiles finish loading
+        map.current.on("data", (e: any) => {
+          if (e.dataType === 'tile' && e.sourceId === 'stamen-toner') {
+            if (e.isSourceLoaded) {
+              console.log("Tile loaded successfully for stamen-toner");
+            } else {
+              console.log("Tile data event for stamen-toner:", {
+                isSourceLoaded: e.isSourceLoaded,
+                tile: e.tile
+              });
+            }
+          }
+          if (e.dataType === 'source' && e.isSourceLoaded) {
+            console.log("Source data loaded:", e.sourceId);
+          }
+          if (e.dataType === 'source' && e.sourceId === 'stamen-toner') {
+            console.log("stamen-toner data event:", {
+              isSourceLoaded: e.isSourceLoaded,
+              tile: e.tile
+            });
+          }
+          if (e.dataType === 'source' && map.current?.loaded()) {
+            console.log("Map loaded detected via data event");
+            markAsLoaded();
+          }
+        });
+
+        // Fallback: check periodically if map is loaded
+        let checkCount = 0;
+        const loadCheckInterval = setInterval(() => {
+          checkCount++;
+          const hasMap = !!map.current;
+          const isLoaded = map.current?.loaded() || false;
+          const hasCanvas = !!ref.current?.querySelector('canvas');
+          const canvas = ref.current?.querySelector('canvas') as HTMLCanvasElement;
+          const canvasSize = canvas ? { width: canvas.width, height: canvas.height } : null;
+          
+          console.log(`Periodic check #${checkCount}:`, {
+            hasMap,
+            isLoaded,
+            hasCanvas,
+            canvasSize,
+            loadedRef: loadedRef.current
+          });
+          
+          // If we have a canvas with dimensions, consider the map loaded (even if tiles aren't loading)
+          // This allows markers to render even if tiles fail
+          if (hasCanvas && canvasSize && canvasSize.width > 0 && canvasSize.height > 0 && !loadedRef.current) {
+            console.log("Map loaded detected via canvas check (canvas has dimensions)");
+            markAsLoaded();
+            clearInterval(loadCheckInterval);
+          } else if (isLoaded && !loadedRef.current) {
+            console.log("Map loaded detected via periodic check (map.loaded() = true)");
+            markAsLoaded();
+            clearInterval(loadCheckInterval);
+          } else if (hasCanvas && !loadedRef.current && checkCount >= 3) {
+            // After a few checks, if canvas exists, mark as loaded even without dimensions
+            // This handles cases where tiles fail but map is still functional
+            console.log("Map loaded detected via canvas existence (fallback after checks)");
+            markAsLoaded();
+            clearInterval(loadCheckInterval);
+          }
+        }, 500);
+        
+        // Clear interval after 10 seconds
+        setTimeout(() => {
+          clearInterval(loadCheckInterval);
+          // Final check
+          const hasCanvas = !!ref.current?.querySelector('canvas');
+          const canvas = ref.current?.querySelector('canvas') as HTMLCanvasElement;
+          if (hasCanvas && canvas && canvas.width > 0 && canvas.height > 0 && !loadedRef.current) {
+            console.log("Map loaded detected in final check (canvas exists)");
+            markAsLoaded();
+          } else if (map.current?.loaded() && !loadedRef.current) {
+            console.log("Map loaded detected in final check (map.loaded())");
+            markAsLoaded();
+          } else {
+            console.warn("Map never detected as loaded. Final state:", {
+              hasMap: !!map.current,
+              mapLoaded: map.current?.loaded(),
+              hasCanvas,
+              canvasSize: canvas ? { width: canvas.width, height: canvas.height } : null
+            });
+          }
+        }, 10000);
 
         // ResizeObserver for container size changes
         const resizeObserver = new ResizeObserver(() => {
@@ -229,7 +481,7 @@ export function MapSection({
         );
         intersectionObserver.observe(ref.current!);
 
-        return () => {
+    return () => {
           resizeObserver.disconnect();
           intersectionObserver.disconnect();
         };
@@ -271,13 +523,24 @@ export function MapSection({
                      cityCoordinates[group.subregion] || 
                      { lat: 62.5, lng: 25.0 }; // Default to Finland center
 
-      // Estimate consumption based on consumption level (for visualization)
-      const consumptionMap: Record<string, number> = {
+      // Use real forecast data if available, otherwise fallback to estimated
+      const forecastData = forecastDataCache[group.group_id];
+      const forecastValue = forecastData ? (viewMode === 'hourly' ? forecastData.hourly : forecastData.monthly) : undefined;
+      
+      // Consumption map: daily values (kWh/day) for hourly, monthly values (kWh/month) for monthly
+      const dailyConsumptionMap: Record<string, number> = {
         "Low": 500,
         "Medium": 750,
         "High": 1200,
       };
-      const estimatedConsumption = consumptionMap[group.consumptionLevel] || 700;
+      const monthlyConsumptionMap: Record<string, number> = {
+        "Low": 15000,   // 500 * 30 days
+        "Medium": 22500, // 750 * 30 days
+        "High": 36000,   // 1200 * 30 days
+      };
+      const consumptionMap = viewMode === 'hourly' ? dailyConsumptionMap : monthlyConsumptionMap;
+      const estimatedConsumption = consumptionMap[group.consumptionLevel] || (viewMode === 'hourly' ? 700 : 21000);
+      const predictedConsumption = forecastValue !== undefined ? forecastValue : estimatedConsumption;
 
       return {
         id: String(group.group_id),
@@ -287,7 +550,7 @@ export function MapSection({
         groupId: group.group_id,
         lng: coords.lng,
         lat: coords.lat,
-        predictedConsumption: estimatedConsumption,
+        predictedConsumption: predictedConsumption,
         trend: "stable" as const,
       };
     });
@@ -329,24 +592,97 @@ export function MapSection({
     });
   };
 
+  // Load forecast data for filtered markers
+  useEffect(() => {
+    if (groupTable.length === 0) return;
+
+    // Get filtered groups based on current selections
+    const filteredGroups = groupTable.filter((g) => {
+      if (selectedMapRegion && g.region !== selectedMapRegion) return false;
+      if (selectedMapSubregion && g.subregion !== selectedMapSubregion) return false;
+      if (selectedMapCity && g.city !== selectedMapCity) return false;
+      if (selectedCustomerType !== "all" && g.customerType !== selectedCustomerType) return false;
+      if (selectedPriceType !== "all" && g.priceType !== selectedPriceType) return false;
+      if (selectedConsumptionLevel !== "all" && g.consumptionLevel !== selectedConsumptionLevel) return false;
+      return true;
+    });
+
+    // Load forecast data for each filtered group (both hourly and monthly)
+    const loadForecasts = async () => {
+      const newCache: Record<number, { hourly?: number; monthly?: number }> = {};
+      
+      await Promise.all(
+        filteredGroups.map(async (group) => {
+          try {
+            // Load both hourly (48h) and monthly (12m) forecasts
+            const [hourlyData, monthlyData] = await Promise.all([
+              loadForecastData(
+                new URL('../assets/data/forecast_48h.csv', import.meta.url).href,
+                group.group_id,
+                false
+              ),
+              loadForecastData(
+                new URL('../assets/data/forecast_12m.csv', import.meta.url).href,
+                group.group_id,
+                true
+              )
+            ]);
+            
+            const cacheEntry: { hourly?: number; monthly?: number } = {};
+            
+            if (hourlyData && hourlyData.length > 0) {
+              // Use the first hour's consumption value
+              cacheEntry.hourly = hourlyData[0].consumption;
+            }
+            
+            if (monthlyData && monthlyData.length > 0) {
+              // Use the first month's consumption value
+              cacheEntry.monthly = monthlyData[0].consumption;
+            }
+            
+            if (cacheEntry.hourly || cacheEntry.monthly) {
+              newCache[group.group_id] = cacheEntry;
+            }
+          } catch (error) {
+            console.warn(`Failed to load forecast for group ${group.group_id}:`, error);
+          }
+        })
+      );
+      
+      setForecastDataCache(newCache);
+    };
+
+    loadForecasts();
+  }, [groupTable, selectedMapRegion, selectedMapSubregion, selectedMapCity, selectedCustomerType, selectedPriceType, selectedConsumptionLevel, viewMode]);
+
   // Create markers when map is loaded AND group table is loaded
   useEffect(() => {
-    if (!loaded || !map.current) return;
+    if (!loaded || !map.current) {
+      console.log("Markers: waiting for map to load", { loaded, hasMap: !!map.current });
+      return;
+    }
     
     // Wait for group table to load
     if (groupTable.length === 0) {
+      console.log("Markers: waiting for group table to load");
       return;
     }
 
+    console.log("Markers: Creating markers", { groupTableLength: groupTable.length, mapLoaded: map.current.loaded() });
+
     // Clear existing markers first
     const existingMarkers = document.querySelectorAll('.maplibregl-marker');
+    console.log(`Markers: Clearing ${existingMarkers.length} existing markers`);
     existingMarkers.forEach(m => m.remove());
 
     // Generate all markers from group table
     const allMarkers = generateMarkersFromGroups();
     const filteredMarkers = getFilteredMarkers(allMarkers);
 
-    console.log(`Displaying ${filteredMarkers.length} of ${allMarkers.length} markers`);
+    console.log(`Markers: Displaying ${filteredMarkers.length} of ${allMarkers.length} markers`);
+
+    // Store allMarkers in a variable accessible to event handlers
+    const markersForHandlers = allMarkers;
 
     filteredMarkers.forEach((m) => {
       // Get group info from group table by group_id
@@ -374,7 +710,22 @@ export function MapSection({
         // Make sure the element can receive events
         el.setAttribute('data-marker-id', m.id);
 
-        const intensity = getIntensity(m.predictedConsumption);
+        // Calculate intensity based on average consumption
+        const avgConsumption = viewMode === 'hourly' ? averageConsumption.hourly : averageConsumption.monthly;
+        const belowAvgThreshold = avgConsumption * 0.8;
+        const aboveAvgThreshold = avgConsumption * 1.2;
+        const veryHighThreshold = avgConsumption * 1.5;
+        
+        let intensity: number;
+        if (m.predictedConsumption < belowAvgThreshold) {
+          intensity = 2; // Below average
+        } else if (m.predictedConsumption <= aboveAvgThreshold) {
+          intensity = 3; // Around average
+        } else if (m.predictedConsumption <= veryHighThreshold) {
+          intensity = 4; // Moderately above average
+        } else {
+          intensity = 5; // Significantly above average
+        }
 
         // Create inner content wrapper with relative positioning
         const contentWrapper = document.createElement("div");
@@ -382,6 +733,62 @@ export function MapSection({
         contentWrapper.style.width = "100%";
         contentWrapper.style.height = "100%";
         contentWrapper.style.pointerEvents = "none";
+        
+        // User-friendly color palette based on average consumption
+        // 3-level system: Below average (Green), Around average (Blue), Above average (Orange/Red)
+        // Thresholds are calculated dynamically based on actual data averages
+        const getColorScheme = (consumption: number, isSelected: boolean) => {
+          // Use average consumption as the middle threshold
+          const avgConsumption = viewMode === 'hourly' ? averageConsumption.hourly : averageConsumption.monthly;
+          
+          // Define thresholds: below average (0.8x avg), around average (0.8x-1.2x avg), above average (>1.2x avg)
+          const belowAvgThreshold = avgConsumption * 0.8;
+          const aboveAvgThreshold = avgConsumption * 1.2;
+          
+          if (consumption < belowAvgThreshold) {
+            // Below average consumption - Green
+            return {
+              primary: isSelected ? "#10B981" : "#34D399", // Emerald green
+              border: isSelected ? "#059669" : "#10B981", // Darker green
+              glow: "rgba(16, 185, 129, 0.4)", // Green glow
+              labelBg: "#ECFDF5", // Light green background
+              labelText: "#065F46" // Dark green text
+            };
+          } else if (consumption <= aboveAvgThreshold) {
+            // Around average consumption - Blue
+            return {
+              primary: isSelected ? "#3B82F6" : "#60A5FA", // Blue
+              border: isSelected ? "#2563EB" : "#3B82F6", // Darker blue
+              glow: "rgba(59, 130, 246, 0.4)", // Blue glow
+              labelBg: "#EFF6FF", // Light blue background
+              labelText: "#1E40AF" // Dark blue text
+            };
+          } else {
+            // Above average consumption - Orange/Red
+            // Use orange for moderately above, red for significantly above
+            if (consumption <= avgConsumption * 1.5) {
+              // Moderately above average - Orange
+              return {
+                primary: isSelected ? "#F59E0B" : "#FBBF24", // Amber/Orange
+                border: isSelected ? "#D97706" : "#F59E0B", // Darker orange
+                glow: "rgba(245, 158, 11, 0.4)", // Orange glow
+                labelBg: "#FFFBEB", // Light amber background
+                labelText: "#92400E" // Dark amber text
+              };
+            } else {
+              // Significantly above average - Red
+              return {
+                primary: isSelected ? "#EF4444" : "#F87171", // Red
+                border: isSelected ? "#DC2626" : "#EF4444", // Darker red
+                glow: "rgba(239, 68, 68, 0.4)", // Red glow
+                labelBg: "#FEF2F2", // Light red background
+                labelText: "#991B1B" // Dark red text
+              };
+            }
+          }
+        };
+        
+        const colors = getColorScheme(m.predictedConsumption, !!isRegionSelected);
         
         contentWrapper.innerHTML =
           [...Array(intensity)]
@@ -395,9 +802,11 @@ export function MapSection({
               transform:translate(-50%,-50%);
               width:${size}px; height:${size}px;
               border-radius:50%;
-              border:2px solid ${isRegionSelected ? "#6A38FF" : "#1e293b"};
+              border:2px solid ${colors.border};
+              background:${colors.primary};
               opacity:${opacity};
               pointer-events:none;
+              box-shadow:0 0 ${8 + i * 2}px ${colors.glow};
             "></div>
           `;
             })
@@ -407,36 +816,40 @@ export function MapSection({
             position:absolute;
             top:50%; left:50%;
             transform:translate(-50%,-50%);
-            width:34px; height:34px;
+            width:44px; height:44px;
             border-radius:50%;
-            border:3px solid ${isRegionSelected ? "#6A38FF" : "#1e293b"};
-            background:white;
-            box-shadow:0 2px 6px rgba(0,0,0,0.2);
+            border:3px solid ${colors.border};
+            background:linear-gradient(135deg, ${colors.primary} 0%, ${colors.border} 100%);
+            box-shadow:0 4px 16px rgba(0,0,0,0.3), 0 0 0 2px rgba(255,255,255,0.1), inset 0 2px 4px rgba(255,255,255,0.3);
             pointer-events:none;
           ">
             <div style="
               position:absolute;
               top:50%; left:50%;
               transform:translate(-50%,-50%);
-              width:12px; height:12px;
+              width:18px; height:18px;
               border-radius:50%;
-              background:${isRegionSelected ? "#6A38FF" : "#1e293b"};
+              background:${colors.border};
+              box-shadow:0 2px 6px rgba(0,0,0,0.4), inset 0 1px 3px rgba(255,255,255,0.4);
             "></div>
           </div>
           <div style="
             position:absolute;
-            top:70px; left:50%;
+            top:78px; left:50%;
             transform:translateX(-50%);
-            background:white;
-            font-size:12px;
-            padding:4px 6px;
-            border-radius:4px;
-            border:1px solid #ddd;
-            color:#1e293b;
+            background:${colors.labelBg};
+            font-size:11px;
+            font-weight:600;
+            padding:6px 10px;
+            border-radius:6px;
+            border:1.5px solid ${colors.border};
+            color:${colors.labelText};
             white-space:nowrap;
             pointer-events:none;
+            box-shadow:0 3px 10px rgba(0,0,0,0.2), 0 1px 3px rgba(0,0,0,0.1);
+            letter-spacing:0.3px;
           ">
-            ${m.predictedConsumption} kWh
+            ${m.predictedConsumption.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} ${viewMode === 'hourly' ? 'kWh/day' : 'kWh/month'}
             </div>
           `;
 
@@ -485,56 +898,305 @@ export function MapSection({
               }
             }
           }
-          
-          // Only pass filters if at least one is active
-          const hasActiveFilters = selectedCustomerType !== "all" || selectedPriceType !== "all" || selectedConsumptionLevel !== "all";
-          const filters = hasActiveFilters ? {
-            customerType: selectedCustomerType !== "all" ? selectedCustomerType : "",
-            priceType: selectedPriceType !== "all" ? selectedPriceType : "",
-            consumptionLevel: selectedConsumptionLevel !== "all" ? selectedConsumptionLevel : "",
-          } : undefined;
-
-          onMarkerClick(
-            groupToUse?.region || finalRegion, 
-            groupToUse?.subregion || finalSubregion, 
-            finalCity, 
-            groupIdToUse,
-            filters
-          );
 
           // Remove existing popup
           popupRef.current?.remove();
 
-          // Create new popup with group table data
-          popupRef.current = new maplibregl.Popup({
-            offset: 20,
-            closeButton: true,
-          })
-            .setLngLat([m.lng, m.lat])
-            .setHTML(`
-              <div style="padding:8px 6px;min-width:200px;font-size:14px;color:white;background:#0f172a;border-radius:6px;border:1px solid #334155;">
-                <b style="font-size:16px;">${finalCity || m.name}</b><br/>
+          // Don't call onMarkerClick here - only show popup
+          // Graph will only open when a specific group ID is clicked in the popup
+
+          // Find all markers/groups for this city
+          const allCityGroups = groupTable.filter(g => g.city === finalCity);
+          
+          // Update top popup element if it exists
+          if (topPopupRef.current) {
+            if (allCityGroups.length > 1) {
+              // Show all options for this city
+              const optionsHtml = allCityGroups.map((group, idx) => {
+                const groupForecastData = forecastDataCache[group.group_id];
+                const forecastValue = groupForecastData ? (viewMode === 'hourly' ? groupForecastData.hourly : groupForecastData.monthly) : undefined;
+                
+                // Consumption map: daily values (kWh/day) for hourly, monthly values (kWh/month) for monthly
+                const dailyConsumptionMap: Record<string, number> = {
+                  "Low": 500,
+                  "Medium": 750,
+                  "High": 1200,
+                };
+                const monthlyConsumptionMap: Record<string, number> = {
+                  "Low": 15000,   // 500 * 30 days
+                  "Medium": 22500, // 750 * 30 days
+                  "High": 36000,   // 1200 * 30 days
+                };
+                const consumptionMap = viewMode === 'hourly' ? dailyConsumptionMap : monthlyConsumptionMap;
+                const estimatedConsumption = consumptionMap[group.consumptionLevel] || (viewMode === 'hourly' ? 700 : 21000);
+                const predictedConsumption = forecastValue !== undefined ? forecastValue : estimatedConsumption;
+                const unit = viewMode === 'hourly' ? 'kWh/day' : 'kWh/month';
+                
+                return `
+                  <div 
+                    onclick="
+                      (function() {
+                        const event = new CustomEvent('selectGroup', { detail: ${group.group_id}, bubbles: true });
+                        window.dispatchEvent(event);
+                      })();
+                    "
+                    style="
+                      padding:10px 12px;
+                      margin-bottom:8px;
+                      background:#1e293b;
+                      border:1px solid #334155;
+                      border-radius:6px;
+                      cursor:pointer;
+                      transition:background 0.2s;
+                    "
+                    onmouseover="this.style.background='#334155'"
+                    onmouseout="this.style.background='#1e293b'"
+                  >
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                      <b style="font-size:14px;color:white;">Group ID: ${group.group_id}</b>
+                      <span style="font-size:16px;color:#3B82F6;font-weight:bold;">${predictedConsumption.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} ${unit}</span>
+                    </div>
+                    <div style="color:#94a3b8;font-size:11px;">
+                      <span style="margin-right:12px;"><strong>Customer:</strong> ${group.customerType}</span>
+                      <span style="margin-right:12px;"><strong>Price:</strong> ${group.priceType}</span>
+                      <span><strong>Level:</strong> ${group.consumptionLevel}</span>
+                    </div>
+                  </div>
+                `;
+              }).join('');
+              
+              topPopupRef.current.innerHTML = `
+                <div style="padding:12px 16px;min-width:300px;max-width:500px;font-size:14px;color:white;background:#0f172a;border-radius:8px;border:2px solid #334155;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
+                  <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:12px;">
+                    <div>
+                      <b style="font-size:18px;">${finalCity || m.name}</b>
+                      <div style="color:#cbd5e1;font-size:12px;margin-top:4px;">
+                        <strong>Region:</strong> ${finalRegion} • <strong>Subregion:</strong> ${finalSubregion}
+                      </div>
+                      <div style="color:#94a3b8;font-size:11px;margin-top:6px;">
+                        ${allCityGroups.length} options available
+                      </div>
+                    </div>
+                    <button onclick="this.closest('.top-popup-container').style.display='none'" style="background:none;border:none;color:#cbd5e1;cursor:pointer;font-size:20px;line-height:1;padding:0;width:24px;height:24px;display:flex;align-items:center;justify-content:center;">×</button>
+                  </div>
+                  <div style="max-height:400px;overflow-y:auto;margin-top:8px;">
+                    ${optionsHtml}
+                  </div>
+                </div>
+              `;
+              } else {
+              // Single marker - show simple popup with clickable group ID
+              const groupForecastData = forecastDataCache[m.groupId];
+              const forecastValue = groupForecastData ? (viewMode === 'hourly' ? groupForecastData.hourly : groupForecastData.monthly) : undefined;
+              
+              // Consumption map: daily values (kWh/day) for hourly, monthly values (kWh/month) for monthly
+              const dailyConsumptionMap: Record<string, number> = {
+                "Low": 500,
+                "Medium": 750,
+                "High": 1200,
+              };
+              const monthlyConsumptionMap: Record<string, number> = {
+                "Low": 15000,   // 500 * 30 days
+                "Medium": 22500, // 750 * 30 days
+                "High": 36000,   // 1200 * 30 days
+              };
+              const consumptionMap = viewMode === 'hourly' ? dailyConsumptionMap : monthlyConsumptionMap;
+              const estimatedConsumption = consumptionMap[groupInfo?.consumptionLevel || 'Medium'] || (viewMode === 'hourly' ? 700 : 21000);
+              const displayValue = forecastValue !== undefined ? forecastValue : estimatedConsumption;
+              const unit = viewMode === 'hourly' ? 'kWh/day' : 'kWh/month';
+              const viewLabel = viewMode === 'hourly' ? 'Hourly' : 'Monthly';
+              
+              // Use the group's actual attributes as filters (not the filter state)
+              const filters = groupInfo ? {
+                customerType: groupInfo.customerType || "",
+                priceType: groupInfo.priceType || "",
+                consumptionLevel: groupInfo.consumptionLevel || "",
+              } : undefined;
+              
+              topPopupRef.current.innerHTML = `
+                <div style="padding:12px 16px;min-width:200px;font-size:14px;color:white;background:#0f172a;border-radius:8px;border:2px solid #334155;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
+                  <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;">
+                    <b style="font-size:18px;">${finalCity || m.name}</b>
+                    <button onclick="this.closest('.top-popup-container').style.display='none'" style="background:none;border:none;color:#cbd5e1;cursor:pointer;font-size:20px;line-height:1;padding:0;width:24px;height:24px;display:flex;align-items:center;justify-content:center;">×</button>
+                  </div>
                 <span style="color:#cbd5e1;font-size:12px;margin-top:4px;display:block;">
                   <strong>Region:</strong> ${finalRegion}<br/>
                   <strong>Subregion:</strong> ${finalSubregion}<br/>
-                  <strong>Group ID:</strong> ${m.groupId}
+                  <strong>Group ID:</strong> <span 
+                    onclick="
+                      (function() {
+                        const event = new CustomEvent('selectGroup', { detail: ${m.groupId}, bubbles: true });
+                        window.dispatchEvent(event);
+                      })();
+                    "
+                    style="
+                      color:#3B82F6;
+                      cursor:pointer;
+                      text-decoration:underline;
+                      font-weight:bold;
+                    "
+                    onmouseover="this.style.color='#60A5FA'"
+                    onmouseout="this.style.color='#3B82F6'"
+                  >${m.groupId}</span>
                 </span>
                 ${groupInfo ? `
-                <div style="color:#94a3b8;font-size:11px;margin-top:6px;padding-top:6px;border-top:1px solid #334155;">
+                   <div style="color:#94a3b8;font-size:11px;margin-top:8px;padding-top:8px;border-top:1px solid #334155;">
                   <strong>Customer:</strong> ${groupInfo.customerType}<br/>
                   <strong>Price Type:</strong> ${groupInfo.priceType}<br/>
                   <strong>Consumption:</strong> ${groupInfo.consumptionLevel}
                 </div>
                 ` : ''}
-                <hr style="border-color:#334155;margin:8px 0;" />
-                <span style="color:#cbd5e1;font-size:12px;">Daily prediction</span>
-                <div style="margin-top:4px;">
-                  <b style="font-size:15px;">${m.predictedConsumption} kWh/day</b>
-                  <span style="margin-left:6px;color:#94a3b8;">${getTrendIcon(m.trend)}</span>
+                   <hr style="border-color:#334155;margin:10px 0;" />
+                 <span style="color:#cbd5e1;font-size:12px;">${viewLabel} prediction</span>
+                   <div style="margin-top:6px;">
+                     <b style="font-size:16px;">${displayValue.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} ${unit}</b>
+                     <span style="margin-left:8px;color:#94a3b8;">${getTrendIcon(m.trend)}</span>
                 </div>
               </div>
-            `)
-            .addTo(map.current!);
+               `;
+               
+               // Set up event listener for single group selection
+               // Remove any existing listener first
+               const existingSingleHandler = (window as any).__singleGroupSelectHandler;
+               if (existingSingleHandler) {
+                 window.removeEventListener('selectGroup', existingSingleHandler as EventListener);
+               }
+               
+               const handleSingleGroupSelect = (event: CustomEvent) => {
+                 console.log('Single group select event received:', event.detail, 'Marker groupId:', m.groupId);
+                 const selectedGroupId = event.detail;
+                 if (selectedGroupId === m.groupId) {
+                   console.log('Opening graph for group:', selectedGroupId);
+                   // Call onMarkerClick to open the graph
+                   onMarkerClick(
+                     finalRegion,
+                     finalSubregion,
+                     finalCity,
+                     m.groupId,
+                     filters,
+                     viewMode
+                   );
+                   
+                   // Scroll to graph section
+                   setTimeout(() => {
+                     const graphSection = document.getElementById('graph-section');
+                     if (graphSection) {
+                       graphSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                     }
+                   }, 300);
+                 }
+               };
+               
+               // Store handler reference
+               (window as any).__singleGroupSelectHandler = handleSingleGroupSelect;
+               window.addEventListener('selectGroup', handleSingleGroupSelect as EventListener);
+             }
+            topPopupRef.current.style.display = 'block';
+          }
+          
+          // Set up event listener for group selection (only if multiple groups)
+          if (allCityGroups.length > 1) {
+            // Remove any existing listener first
+            const existingHandler = (window as any).__groupSelectHandler;
+            if (existingHandler) {
+              window.removeEventListener('selectGroup', existingHandler as EventListener);
+            }
+            
+            const handleGroupSelect = (event: CustomEvent) => {
+              console.log('Group select event received:', event.detail);
+              const selectedGroupId = event.detail;
+              const selectedGroup = groupTable.find(g => g.group_id === selectedGroupId);
+              
+              console.log('Selected group found:', selectedGroup);
+              
+              if (selectedGroup) {
+                // Find the matching marker
+                const selectedMarker = markersForHandlers.find(marker => marker.groupId === selectedGroupId);
+                
+                if (selectedMarker) {
+                  // Trigger the same logic as clicking the marker
+                  const finalRegion = selectedGroup.region || regionMapFromGroups[selectedGroup.subregion] || regionMap[selectedGroup.subregion] || "Unknown";
+                  const finalCity = selectedGroup.city;
+                  const finalSubregion = selectedGroup.subregion;
+                  
+                  // Use the group's actual attributes as filters (not the filter state)
+                  const filters = {
+                    customerType: selectedGroup.customerType || "",
+                    priceType: selectedGroup.priceType || "",
+                    consumptionLevel: selectedGroup.consumptionLevel || "",
+                  };
+
+                  onMarkerClick(
+                    finalRegion,
+                    finalSubregion,
+                    finalCity, 
+                    selectedGroupId,
+                    filters,
+                    viewMode
+                  );
+
+                  // Scroll to graph section after a short delay to ensure state updates
+                  setTimeout(() => {
+                    const graphSection = document.getElementById('graph-section');
+                    if (graphSection) {
+                      graphSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                  }, 300);
+                  
+                  // Update popup to show selected group
+                  if (topPopupRef.current) {
+                    const groupForecastData = forecastDataCache[selectedGroupId];
+                    const forecastValue = groupForecastData ? (viewMode === 'hourly' ? groupForecastData.hourly : groupForecastData.monthly) : undefined;
+                    
+                    // Consumption map: daily values (kWh/day) for hourly, monthly values (kWh/month) for monthly
+                    const dailyConsumptionMap: Record<string, number> = {
+                      "Low": 500,
+                      "Medium": 750,
+                      "High": 1200,
+                    };
+                    const monthlyConsumptionMap: Record<string, number> = {
+                      "Low": 15000,   // 500 * 30 days
+                      "Medium": 22500, // 750 * 30 days
+                      "High": 36000,   // 1200 * 30 days
+                    };
+                    const consumptionMap = viewMode === 'hourly' ? dailyConsumptionMap : monthlyConsumptionMap;
+                    const estimatedConsumption = consumptionMap[selectedGroup.consumptionLevel] || (viewMode === 'hourly' ? 700 : 21000);
+                    const predictedConsumption = forecastValue !== undefined ? forecastValue : estimatedConsumption;
+                    const unit = viewMode === 'hourly' ? 'kWh/day' : 'kWh/month';
+                    const viewLabel = viewMode === 'hourly' ? 'Hourly' : 'Monthly';
+                    
+                    topPopupRef.current.innerHTML = `
+                      <div style="padding:12px 16px;min-width:200px;font-size:14px;color:white;background:#0f172a;border-radius:8px;border:2px solid #334155;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
+                        <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;">
+                          <b style="font-size:18px;">${finalCity}</b>
+                          <button onclick="this.closest('.top-popup-container').style.display='none'" style="background:none;border:none;color:#cbd5e1;cursor:pointer;font-size:20px;line-height:1;padding:0;width:24px;height:24px;display:flex;align-items:center;justify-content:center;">×</button>
+                        </div>
+                        <span style="color:#cbd5e1;font-size:12px;margin-top:4px;display:block;">
+                          <strong>Region:</strong> ${finalRegion}<br/>
+                          <strong>Subregion:</strong> ${finalSubregion}<br/>
+                          <strong>Group ID:</strong> ${selectedGroupId}
+                        </span>
+                        <div style="color:#94a3b8;font-size:11px;margin-top:8px;padding-top:8px;border-top:1px solid #334155;">
+                          <strong>Customer:</strong> ${selectedGroup.customerType}<br/>
+                          <strong>Price Type:</strong> ${selectedGroup.priceType}<br/>
+                          <strong>Consumption:</strong> ${selectedGroup.consumptionLevel}
+                        </div>
+                        <hr style="border-color:#334155;margin:10px 0;" />
+                        <span style="color:#cbd5e1;font-size:12px;">${viewLabel} prediction</span>
+                        <div style="margin-top:6px;">
+                          <b style="font-size:16px;">${predictedConsumption.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} ${unit}</b>
+                        </div>
+                      </div>
+                    `;
+                  }
+                }
+              }
+            };
+            
+            // Store handler reference to allow cleanup
+            (window as any).__groupSelectHandler = handleGroupSelect;
+            window.addEventListener('selectGroup', handleGroupSelect as EventListener);
+          }
         };
         
         // Attach event listeners BEFORE adding to map
@@ -559,6 +1221,7 @@ export function MapSection({
         
         // Create marker AFTER setting up event listeners
         // Use 'center' anchor so the marker center point is at the lat/lng
+        try {
         const marker = new maplibregl.Marker({
           element: el,
           anchor: 'center'
@@ -568,8 +1231,12 @@ export function MapSection({
         
         // Store marker reference for potential cleanup
         (el as any)._marker = marker;
+          console.log(`Marker added for ${m.name} at [${m.lng}, ${m.lat}]`);
+        } catch (error) {
+          console.error(`Error adding marker for ${m.name}:`, error);
+        }
       });
-  }, [loaded, groupTable, regionMapFromGroups, selectedRegion, selectedCustomerType, selectedPriceType, selectedConsumptionLevel, selectedMapRegion, selectedMapSubregion, selectedMapCity, onMarkerClick]);
+  }, [loaded, groupTable, regionMapFromGroups, selectedRegion, selectedCustomerType, selectedPriceType, selectedConsumptionLevel, selectedMapRegion, selectedMapSubregion, selectedMapCity, forecastDataCache, viewMode, onMarkerClick]);
 
   // -------------------------------------------------------------
   // FLY TO SELECTED CITY
@@ -1259,10 +1926,111 @@ export function MapSection({
       )}
 
       <div
-        ref={ref}
-        className="w-full border border-slate-300 rounded-lg overflow-hidden"
+        className="w-full border border-slate-300 rounded-lg overflow-hidden relative"
         style={{ height: "500px" }}
-      />
+      >
+        {/* Top popup container */}
+        <div
+          ref={topPopupRef}
+          className="top-popup-container"
+          style={{
+            position: 'absolute',
+            top: '10px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 1000,
+            display: 'none',
+            maxWidth: '90%',
+            width: 'auto'
+          }}
+        />
+        {/* View mode toggle button */}
+        <div
+          style={{
+            position: 'absolute',
+            top: '10px',
+            left: '10px',
+            zIndex: 1000,
+            display: 'flex',
+            gap: '4px',
+            background: '#0f172a',
+            padding: '4px',
+            borderRadius: '8px',
+            border: '2px solid #334155',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+          }}
+        >
+          <button
+            onClick={() => {
+              setViewMode('hourly');
+              // Close popup when switching view mode
+              if (topPopupRef.current) {
+                topPopupRef.current.style.display = 'none';
+              }
+            }}
+            style={{
+              padding: '8px 16px',
+              border: 'none',
+              borderRadius: '6px',
+              background: viewMode === 'hourly' ? '#3B82F6' : 'transparent',
+              color: viewMode === 'hourly' ? 'white' : '#94a3b8',
+              fontSize: '12px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}
+            onMouseOver={(e) => {
+              if (viewMode !== 'hourly') {
+                e.currentTarget.style.background = '#1e293b';
+              }
+            }}
+            onMouseOut={(e) => {
+              if (viewMode !== 'hourly') {
+                e.currentTarget.style.background = 'transparent';
+              }
+            }}
+          >
+            Hourly
+          </button>
+          <button
+            onClick={() => {
+              setViewMode('monthly');
+              // Close popup when switching view mode
+              if (topPopupRef.current) {
+                topPopupRef.current.style.display = 'none';
+              }
+            }}
+            style={{
+              padding: '8px 16px',
+              border: 'none',
+              borderRadius: '6px',
+              background: viewMode === 'monthly' ? '#3B82F6' : 'transparent',
+              color: viewMode === 'monthly' ? 'white' : '#94a3b8',
+              fontSize: '12px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}
+            onMouseOver={(e) => {
+              if (viewMode !== 'monthly') {
+                e.currentTarget.style.background = '#1e293b';
+              }
+            }}
+            onMouseOut={(e) => {
+              if (viewMode !== 'monthly') {
+                e.currentTarget.style.background = 'transparent';
+              }
+            }}
+          >
+            Monthly
+          </button>
+        </div>
+        {/* Map container */}
+        <div
+          ref={ref}
+          className="w-full h-full"
+        />
+      </div>
       <style>{`
         .custom-marker-clickable {
           pointer-events: auto !important;
@@ -1288,6 +2056,29 @@ export function MapSection({
         }
         .maplibregl-marker-container {
           pointer-events: auto !important;
+        }
+        .custom-popup {
+          max-width: 300px !important;
+        }
+        .maplibregl-popup {
+          max-width: 300px !important;
+        }
+        .maplibregl-popup-content {
+          max-width: 100% !important;
+          word-wrap: break-word;
+        }
+        /* Ensure popup stays within map bounds */
+        .maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
+          border-top-color: #0f172a;
+        }
+        .maplibregl-popup-anchor-top .maplibregl-popup-tip {
+          border-bottom-color: #0f172a;
+        }
+        .maplibregl-popup-anchor-left .maplibregl-popup-tip {
+          border-right-color: #0f172a;
+        }
+        .maplibregl-popup-anchor-right .maplibregl-popup-tip {
+          border-left-color: #0f172a;
         }
       `}</style>
     </div>
